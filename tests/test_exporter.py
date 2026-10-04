@@ -2,15 +2,13 @@ import unittest
 import sqlite3
 import os
 import tempfile
-import time
-from datetime import datetime
+from datetime import datetime, timezone
 
-# Adjust paths to mock ones for the test
+# Override env vars before importing exporter
 test_dir = tempfile.mkdtemp()
 mock_source_db = os.path.join(test_dir, "source.db")
 mock_dest_db = os.path.join(test_dir, "dest.db")
 
-# Override env vars before importing exporter
 os.environ["SOURCE_DB_PATH"] = mock_source_db
 os.environ["DEST_DB_PATH"] = mock_dest_db
 
@@ -52,7 +50,7 @@ class TestExporter(unittest.TestCase):
                 payload TEXT
             )
         ''')
-        now = datetime.now().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         cursor.execute('''
             INSERT INTO jules_jobs
             (id, repo_name, task_description, jules_agent_job_id, status, created_at, updated_at, remote_state)
@@ -70,6 +68,12 @@ class TestExporter(unittest.TestCase):
         exporter.export_db()
 
         self.assertTrue(os.path.exists(mock_dest_db))
+
+        # Verify permissions
+        st = os.stat(mock_dest_db)
+        # 0o644 is octal 0644. Check lower 9 bits.
+        self.assertEqual(st.st_mode & 0o777, 0o644)
+
         conn = sqlite3.connect(mock_dest_db)
         cursor = conn.cursor()
 
@@ -86,10 +90,10 @@ class TestExporter(unittest.TestCase):
         self.assertIsNone(cursor.fetchone())
 
         # Verify metadata
-        cursor.execute("SELECT success, error_message FROM export_metadata ORDER BY id DESC LIMIT 1")
+        cursor.execute("SELECT error_code, last_success_at FROM export_metadata ORDER BY id DESC LIMIT 1")
         meta = cursor.fetchone()
-        self.assertEqual(meta[0], 1)
-        self.assertIsNone(meta[1])
+        self.assertEqual(meta[0], "NONE")
+        self.assertIsNotNone(meta[1])
 
         conn.close()
 
@@ -102,10 +106,9 @@ class TestExporter(unittest.TestCase):
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='jules_jobs'")
         self.assertIsNone(cursor.fetchone())
 
-        cursor.execute("SELECT success, error_message FROM export_metadata ORDER BY id DESC LIMIT 1")
+        cursor.execute("SELECT error_code FROM export_metadata ORDER BY id DESC LIMIT 1")
         meta = cursor.fetchone()
-        self.assertEqual(meta[0], 0)
-        self.assertIn("not found", meta[1])
+        self.assertEqual(meta[0], "SOURCE_UNAVAILABLE")
         conn.close()
 
     def test_missing_source_db_preserves_old_data_and_adds_error(self):
@@ -124,10 +127,10 @@ class TestExporter(unittest.TestCase):
         self.assertEqual(cursor.fetchone()[0], 1)
 
         # Latest metadata should show failure
-        cursor.execute("SELECT success, error_message FROM export_metadata ORDER BY id DESC LIMIT 1")
+        cursor.execute("SELECT error_code, last_success_at FROM export_metadata ORDER BY id DESC LIMIT 1")
         meta = cursor.fetchone()
-        self.assertEqual(meta[0], 0)
-        self.assertIn("not found", meta[1])
+        self.assertEqual(meta[0], "SOURCE_UNAVAILABLE")
+        self.assertIsNotNone(meta[1]) # Prev success date should be preserved
         conn.close()
 
     def test_invalid_schema_preserves_data(self):
@@ -148,10 +151,9 @@ class TestExporter(unittest.TestCase):
         cursor.execute("SELECT count(*) FROM jules_jobs")
         self.assertEqual(cursor.fetchone()[0], 1)
 
-        cursor.execute("SELECT success, error_message FROM export_metadata ORDER BY id DESC LIMIT 1")
+        cursor.execute("SELECT error_code FROM export_metadata ORDER BY id DESC LIMIT 1")
         meta = cursor.fetchone()
-        self.assertEqual(meta[0], 0)
-        self.assertIn("not found in source database", meta[1])
+        self.assertEqual(meta[0], "INVALID_SCHEMA")
         dest_conn.close()
 
 if __name__ == '__main__':
