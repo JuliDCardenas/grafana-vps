@@ -45,6 +45,15 @@ services:
       - /var/lib/docker:/var/lib/docker:ro
     networks: [redinterna]
 
+  jules-exporter:
+    build: ./jules_exporter
+    container_name: jules-exporter
+    restart: unless-stopped
+    volumes:
+      - /home/ubuntu/.local/share/ia-mcp-vps/coding-jobs:/var/lib/coding-jobs:ro
+      - jules_jobs_exported:/var/lib/grafana-sqlite
+    networks: [redinterna]
+
   grafana:
     image: grafana/grafana:latest
     container_name: grafana
@@ -54,8 +63,11 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - jules_jobs_exported:/var/lib/grafana-sqlite:ro
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD}
+      GF_INSTALL_PLUGINS: frser-sqlite-datasource
     networks: [redinterna]
 
   mcp-grafana:
@@ -75,6 +87,7 @@ services:
 volumes:
   prometheus_data: {}
   grafana_data: {}
+  jules_jobs_exported: {}
 
 networks:
   redinterna:

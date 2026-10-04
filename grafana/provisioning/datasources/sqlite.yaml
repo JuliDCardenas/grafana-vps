@@ -1,0 +1,11 @@
+apiVersion: 1
+
+datasources:
+  - name: SQLite_Jules
+    type: frser-sqlite-datasource
+    access: proxy
+    url: /var/lib/grafana-sqlite/exported_jobs.db
+    isDefault: false
+    jsonData:
+      path: /var/lib/grafana-sqlite/exported_jobs.db
+    editable: false
