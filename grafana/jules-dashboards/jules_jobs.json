@@ -1,0 +1,107 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "SQLite_Jules"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "SQLite_Jules"
+          },
+          "queryType": "table",
+          "queryText": "SELECT \n  CASE \n    WHEN (strftime('%s', 'now') - strftime('%s', last_attempt_at)) > 120 THEN 'Desactualizado (' || error_code || ')'\n    WHEN error_code != 'NONE' THEN 'Error: ' || error_code\n    ELSE 'Exportación exitosa'\n  END as estado,\n  last_success_at as ultima_exportacion_exitosa,\n  last_attempt_at as ultimo_intento\nFROM export_metadata \nORDER BY id DESC LIMIT 1;",
+          "rawQueryText": "SELECT \n  CASE \n    WHEN (strftime('%s', 'now') - strftime('%s', last_attempt_at)) > 120 THEN 'Desactualizado (' || error_code || ')'\n    WHEN error_code != 'NONE' THEN 'Error: ' || error_code\n    ELSE 'Exportación exitosa'\n  END as estado,\n  last_success_at as ultima_exportacion_exitosa,\n  last_attempt_at as ultimo_intento\nFROM export_metadata \nORDER BY id DESC LIMIT 1;",
+          "timeColumns": ["ultima_exportacion_exitosa", "ultimo_intento"],
+          "refId": "A"
+        }
+      ],
+      "title": "Estado registrado por el MCP (caché local)",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "SQLite_Jules"
+      },
+      "gridPos": {
+        "h": 16,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "id": 1,
+      "options": {
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "SQLite_Jules"
+          },
+          "queryType": "table",
+          "queryText": "SELECT id, repo_name as repositorio, coalesce(remote_state, 'Sin dato') as remote_state, status as estado_local, created_at as creado, updated_at as actualizado FROM jules_jobs ORDER BY datetime(created_at) DESC LIMIT 1000",
+          "rawQueryText": "SELECT id, repo_name as repositorio, coalesce(remote_state, 'Sin dato') as remote_state, status as estado_local, created_at as creado, updated_at as actualizado FROM jules_jobs ORDER BY datetime(created_at) DESC LIMIT 1000",
+          "timeColumns": ["creado", "actualizado"],
+          "refId": "A"
+        }
+      ],
+      "title": "Encargos",
+      "type": "table"
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": [],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "America/Bogota",
+  "title": "Encargos Jules",
+  "uid": "jules_jobs_db",
+  "version": 1
+}
