@@ -54,18 +54,6 @@ services:
         source: /home/ubuntu/.local/share/ia-mcp-vps/coding-jobs/jules_jobs.db
         target: /var/lib/coding-jobs/jules_jobs.db
         read_only: true
-      # Support WAL. Using long bind mount syntax ensures Docker won't create directories
-      # if these files don't exist yet on the host when starting the container.
-      - type: bind
-        source: /home/ubuntu/.local/share/ia-mcp-vps/coding-jobs/jules_jobs.db-wal
-        target: /var/lib/coding-jobs/jules_jobs.db-wal
-        read_only: true
-        bind:
-          create_host_path: false
-      - type: bind
-        source: /home/ubuntu/.local/share/ia-mcp-vps/coding-jobs/jules_jobs.db-shm
-        target: /var/lib/coding-jobs/jules_jobs.db-shm
-        read_only: true
         bind:
           create_host_path: false
       - jules_jobs_exported:/var/lib/grafana-sqlite

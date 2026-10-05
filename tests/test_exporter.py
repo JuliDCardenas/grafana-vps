@@ -90,25 +90,37 @@ class TestExporter(unittest.TestCase):
         self.assertIsNone(cursor.fetchone())
 
         # Verify metadata
-        cursor.execute("SELECT error_code, last_success_at FROM export_metadata ORDER BY id DESC LIMIT 1")
+        cursor.execute("SELECT error_code, last_success_at FROM export_metadata WHERE id=1")
         meta = cursor.fetchone()
+
+        # Verify table size limits
+        cursor.execute("SELECT count(*) FROM export_metadata")
+        self.assertEqual(cursor.fetchone()[0], 1)
         self.assertEqual(meta[0], "NONE")
         self.assertIsNotNone(meta[1])
 
         conn.close()
 
-    def test_missing_source_db_creates_error_metadata_but_no_jobs_table(self):
+    def test_missing_source_db_creates_error_metadata_and_empty_jobs_table(self):
         exporter.export_db()
         self.assertTrue(os.path.exists(mock_dest_db))
         conn = sqlite3.connect(mock_dest_db)
         cursor = conn.cursor()
 
+        # Verify jules_jobs table IS created even if source is missing to prevent Grafana 'no such table'
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='jules_jobs'")
-        self.assertIsNone(cursor.fetchone())
+        self.assertIsNotNone(cursor.fetchone())
 
-        cursor.execute("SELECT error_code FROM export_metadata ORDER BY id DESC LIMIT 1")
+        # Verify it is empty
+        cursor.execute("SELECT count(*) FROM jules_jobs")
+        self.assertEqual(cursor.fetchone()[0], 0)
+
+        cursor.execute("SELECT error_code FROM export_metadata WHERE id=1")
         meta = cursor.fetchone()
         self.assertEqual(meta[0], "SOURCE_UNAVAILABLE")
+
+        cursor.execute("SELECT count(*) FROM export_metadata")
+        self.assertEqual(cursor.fetchone()[0], 1)
         conn.close()
 
     def test_missing_source_db_preserves_old_data_and_adds_error(self):
@@ -127,10 +139,13 @@ class TestExporter(unittest.TestCase):
         self.assertEqual(cursor.fetchone()[0], 1)
 
         # Latest metadata should show failure
-        cursor.execute("SELECT error_code, last_success_at FROM export_metadata ORDER BY id DESC LIMIT 1")
+        cursor.execute("SELECT error_code, last_success_at FROM export_metadata WHERE id=1")
         meta = cursor.fetchone()
         self.assertEqual(meta[0], "SOURCE_UNAVAILABLE")
         self.assertIsNotNone(meta[1]) # Prev success date should be preserved
+
+        cursor.execute("SELECT count(*) FROM export_metadata")
+        self.assertEqual(cursor.fetchone()[0], 1)
         conn.close()
 
     def test_invalid_schema_preserves_data(self):
@@ -151,7 +166,29 @@ class TestExporter(unittest.TestCase):
         cursor.execute("SELECT count(*) FROM jules_jobs")
         self.assertEqual(cursor.fetchone()[0], 1)
 
-        cursor.execute("SELECT error_code FROM export_metadata ORDER BY id DESC LIMIT 1")
+        cursor.execute("SELECT error_code FROM export_metadata WHERE id=1")
+        meta = cursor.fetchone()
+        self.assertEqual(meta[0], "INVALID_SCHEMA")
+
+        cursor.execute("SELECT count(*) FROM export_metadata")
+        self.assertEqual(cursor.fetchone()[0], 1) # Size remains 1
+        dest_conn.close()
+
+    def test_missing_columns_results_in_invalid_schema(self):
+        self.create_mock_source()
+
+        # Corrupt the schema by renaming a required column
+        conn = sqlite3.connect(mock_source_db)
+        conn.execute("ALTER TABLE jules_jobs RENAME COLUMN status TO _status")
+        conn.commit()
+        conn.close()
+
+        exporter.export_db()
+
+        dest_conn = sqlite3.connect(mock_dest_db)
+        cursor = dest_conn.cursor()
+
+        cursor.execute("SELECT error_code FROM export_metadata WHERE id=1")
         meta = cursor.fetchone()
         self.assertEqual(meta[0], "INVALID_SCHEMA")
         dest_conn.close()
