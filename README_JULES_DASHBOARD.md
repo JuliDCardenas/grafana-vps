@@ -1,26 +1,56 @@
-# Estado de la Integración del Dashboard de Jules
+# Integración del Dashboard de Encargos Jules (Contrato V1)
 
-**BLOQUEO ARQUITECTÓNICO ACTIVO:** La integración automática mediante un contenedor sidecar (`jules-exporter`) montando únicamente el archivo `jules_jobs.db` vía Docker ha sido abortada.
+Esta es una guía breve de integración, validación y rollback para añadir el dashboard de lectura de encargos de Jules a la instancia activa de Grafana, asumiendo la arquitectura de Contrato V1.
 
-## Motivo Técnico del Bloqueo
+**Arquitectura V1:**
+En lugar de extraer la data en tiempo real mapeando archivos SQLite directamente, el proceso MCP (`IA-mcp-vps`) está programado de manera independiente para escribir una base de datos sanitizada `exported_jobs.db` en un directorio exclusivo. Grafana se limita a montar este directorio como read-only, evitando riesgos de seguridad (sin acceso a logs o secretos) e integridad (sin problemas de concurrencia ACID de archivos ocultos).
 
-Montar un archivo SQLite directamente en Docker (file-only bind mount) sin montar su directorio adyacente o sus archivos journal impide la consistencia transaccional (ACID).
-Aunque la base de datos opere en modo `DELETE` (sin WAL o SHM), SQLite puede ejecutar volcados de caché (spilled pages) al archivo principal antes de un COMMIT definitivo, respaldando los datos originales en el `-journal`.
-Si ocurre un crash o lectura paralela y el lector (nuestro sidecar Docker) no tiene acceso al archivo `-journal` para efectuar el rollback, el lector verá datos `UNCOMMITTED` (estado de corrupción lógica). Dado que no podemos ampliar los permisos de seguridad para montar el directorio entero (contiene payloads privados), la arquitectura file-only para DBs vivas está vetada.
+## Preflight Checklist (Antes del despliegue)
 
-## Siguientes Pasos (Propuesta Opción A)
+1. Verificar que el proceso MCP en la máquina host esté configurado y generando correctamente los volcados en la ruta: `/home/ubuntu/.local/share/ia-mcp-vps/jules-observability/`. Si la salida no existe o no está lista en este directorio, detenga el despliegue.
+2. Verificar la versión activa de Grafana en el sistema y asegurar la compatibilidad con el plugin `frser-sqlite-datasource` (versión 4.0.6 fijada).
+3. Asegúrese de NO auto-aplicar credenciales o cambios al `.env` del host. Revise la *allowlist* en `config.yaml` de manera manual si es aplicable.
 
-En lugar de extraer la data desde fuera mediante polling en Docker, la exportación deberá ser programada de manera interna y sanitizada atómicamente por el proceso padre (IA-mcp-vps), ya que dicho proceso corre con visibilidad completa del directorio y journals correctos.
+## Despliegue Selectivo (Patch)
 
-1. **Modificación externa:** Se debe programar que el MCP genere periódicamente un volcado (`jules_jobs_public.db`) sanitizado (solo columnas de status).
-2. **Reactivación:** Una vez exista dicho volcado, Grafana simplemente montará ese archivo como read-only en el stack de Prometheus.
-3. Se conservan temporalmente los archivos de aprovisionamiento de Grafana (`grafana/provisioning/`) en este PR en estado inactivo hasta que el MCP entregue el soporte, a fin de no desechar el esquema visual ya validado.
+Dado que no queremos destruir o regenerar completamente el stack histórico, seguiremos estos pasos:
 
-## Rollback de la UI (Para limpiar instalaciones previas)
+1. Respaldar la configuración actual:
+   `cp /home/ubuntu/prometheus/docker-compose.yml /home/ubuntu/prometheus/docker-compose.yml.bak`
+2. Modificar el archivo `docker-compose.yml` en el host añadiendo la instalación del plugin y el nuevo volumen al servicio `grafana`:
+   ```yaml
+   # Fragmento para agregar bajo grafana > environment:
+   GF_INSTALL_PLUGINS: frser-sqlite-datasource 4.0.6
 
-Si se desplegaron los dashboards localmente de manera manual, para retirarlos de forma segura sin afectar los otros dashboards:
+   # Fragmentos para agregar bajo grafana > volumes:
+   - ./grafana/provisioning_jules:/etc/grafana/provisioning_jules:ro
+   - type: bind
+     source: /home/ubuntu/.local/share/ia-mcp-vps/jules-observability
+     target: /var/lib/grafana-sqlite
+     read_only: true
+     bind:
+       create_host_path: false
+   ```
+3. Copiar recursivamente la carpeta `grafana/provisioning_jules` desde este repositorio hacia `/home/ubuntu/prometheus/grafana/provisioning_jules`. **Nota:** Se utiliza una carpeta independiente (`provisioning_jules`) y se añade un volumen separado de lectura para no interferir con las rutas de `provisioning` nativas o ya configuradas de Grafana.
+4. Validar la nueva configuración de Compose sin aplicarla globalmente:
+   `docker compose -f /home/ubuntu/prometheus/docker-compose.yml config`
+5. Recrear únicamente el contenedor de Grafana de forma aislada:
+   `docker compose -f /home/ubuntu/prometheus/docker-compose.yml up -d --no-deps grafana`
 
-1. Elimine exclusivamente los archivos nuevos introducidos en el aprovisionamiento original en `/home/ubuntu/prometheus/grafana/provisioning/` (p. ej., `jules_dashboards.yaml`, `dashboards/jules_jobs.json`, `datasources/sqlite.yaml`). NO elimine el directorio entero.
-2. Elimine las directivas de volumen y el plugin instalados en `docker-compose.yml` de Grafana.
-3. Recree Grafana a su estado original sin afectar a otros contenedores:
+## Smoke Test (Validación posterior)
+
+1. Abrir Grafana y revisar que el origen de datos (Datasources) "SQLite_Jules" cargó exitosamente y señala a `/var/lib/grafana-sqlite/exported_jobs.db`.
+2. Abrir Dashboards y localizar el dashboard "Encargos Jules".
+3. Validar que la tabla muestra datos reales correspondientes al status, remote_state, repository y fechas.
+4. Revisar que la estadística superior reporte el estado (ej. "Exportación Exitosa", "Error: SOURCE_UNAVAILABLE", o "Desactualizado" si los volcados del backend se estancaron en el tiempo).
+
+## Rollback Selectivo
+
+Para deshacer los cambios limitándonos a remover solo lo introducido por Jules y sin afectar la data general del stack:
+
+1. Restaurar el archivo compose original:
+   `mv /home/ubuntu/prometheus/docker-compose.yml.bak /home/ubuntu/prometheus/docker-compose.yml`
+2. Eliminar el directorio inerte de provisión:
+   `rm -rf /home/ubuntu/prometheus/grafana/provisioning_jules`
+3. Recrear Grafana a su estado original sin afectar el resto de componentes (Prometheus, etc) y sin emitir flags `--remove-orphans`:
    `docker compose -f /home/ubuntu/prometheus/docker-compose.yml up -d --no-deps grafana`
