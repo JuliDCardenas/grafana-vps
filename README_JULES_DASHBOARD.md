@@ -17,13 +17,30 @@ Dado que no queremos destruir o regenerar completamente el stack histórico, seg
 
 1. Respaldar la configuración actual:
    `cp /home/ubuntu/prometheus/docker-compose.yml /home/ubuntu/prometheus/docker-compose.yml.bak`
-2. Modificar el archivo `docker-compose.yml` en el host añadiendo la instalación del plugin y el nuevo volumen al servicio `grafana`:
+2. Modificar el archivo `docker-compose.yml` en el host añadiendo la instalación del plugin y los nuevos volúmenes aislados al servicio `grafana`:
    ```yaml
    # Fragmento para agregar bajo grafana > environment:
    GF_INSTALL_PLUGINS: frser-sqlite-datasource 4.0.6
 
    # Fragmentos para agregar bajo grafana > volumes:
-   - ./grafana/provisioning_jules:/etc/grafana/provisioning_jules:ro
+   - type: bind
+     source: ./grafana/jules_sqlite.yaml
+     target: /etc/grafana/provisioning/datasources/jules_sqlite.yaml
+     read_only: true
+     bind:
+       create_host_path: false
+   - type: bind
+     source: ./grafana/jules_dashboards.yaml
+     target: /etc/grafana/provisioning/dashboards/jules_dashboards.yaml
+     read_only: true
+     bind:
+       create_host_path: false
+   - type: bind
+     source: ./grafana/jules-dashboards
+     target: /etc/grafana/jules-dashboards
+     read_only: true
+     bind:
+       create_host_path: false
    - type: bind
      source: /home/ubuntu/.local/share/ia-mcp-vps/jules-observability
      target: /var/lib/grafana-sqlite
@@ -31,10 +48,11 @@ Dado que no queremos destruir o regenerar completamente el stack histórico, seg
      bind:
        create_host_path: false
    ```
-3. Copiar recursivamente la carpeta `grafana/provisioning_jules` desde este repositorio hacia `/home/ubuntu/prometheus/grafana/provisioning_jules`. **Nota:** Se utiliza una carpeta independiente (`provisioning_jules`) y se añade un volumen separado de lectura para no interferir con las rutas de `provisioning` nativas o ya configuradas de Grafana.
-4. Validar la nueva configuración de Compose sin aplicarla globalmente:
+3. Copiar los archivos `grafana/jules_sqlite.yaml` y `grafana/jules_dashboards.yaml` desde este repositorio a `/home/ubuntu/prometheus/grafana/`.
+4. Copiar el directorio `grafana/jules-dashboards` a `/home/ubuntu/prometheus/grafana/jules-dashboards`. **Nota:** Se utiliza esta estrategia de montaje de archivos específicos para no sobrescribir, ocultar o requerir un reemplazo total de la carpeta `provisioning` base que Grafana lee por defecto.
+5. Validar la nueva configuración de Compose sin aplicarla globalmente:
    `docker compose -f /home/ubuntu/prometheus/docker-compose.yml config`
-5. Recrear únicamente el contenedor de Grafana de forma aislada:
+6. Recrear únicamente el contenedor de Grafana de forma aislada:
    `docker compose -f /home/ubuntu/prometheus/docker-compose.yml up -d --no-deps grafana`
 
 ## Smoke Test (Validación posterior)
@@ -50,7 +68,9 @@ Para deshacer los cambios limitándonos a remover solo lo introducido por Jules 
 
 1. Restaurar el archivo compose original:
    `mv /home/ubuntu/prometheus/docker-compose.yml.bak /home/ubuntu/prometheus/docker-compose.yml`
-2. Eliminar el directorio inerte de provisión:
-   `rm -rf /home/ubuntu/prometheus/grafana/provisioning_jules`
+2. Eliminar exclusivamente los archivos inyectados:
+   `rm -f /home/ubuntu/prometheus/grafana/jules_sqlite.yaml`
+   `rm -f /home/ubuntu/prometheus/grafana/jules_dashboards.yaml`
+   `rm -rf /home/ubuntu/prometheus/grafana/jules-dashboards`
 3. Recrear Grafana a su estado original sin afectar el resto de componentes (Prometheus, etc) y sin emitir flags `--remove-orphans`:
    `docker compose -f /home/ubuntu/prometheus/docker-compose.yml up -d --no-deps grafana`

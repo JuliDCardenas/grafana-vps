@@ -55,7 +55,24 @@ services:
       - grafana_data:/var/lib/grafana
       - ./grafana/grafana.ini:/etc/grafana/grafana.ini:ro
       # Add Jules dashboard integration mounts (Contract V1)
-      - ./grafana/provisioning_jules:/etc/grafana/provisioning_jules:ro
+      - type: bind
+        source: ./grafana/jules_sqlite.yaml
+        target: /etc/grafana/provisioning/datasources/jules_sqlite.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./grafana/jules_dashboards.yaml
+        target: /etc/grafana/provisioning/dashboards/jules_dashboards.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./grafana/jules-dashboards
+        target: /etc/grafana/jules-dashboards
+        read_only: true
+        bind:
+          create_host_path: false
       - type: bind
         source: /home/ubuntu/.local/share/ia-mcp-vps/jules-observability
         target: /var/lib/grafana-sqlite

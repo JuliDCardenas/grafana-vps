@@ -9,6 +9,6 @@ datasources:
     isDefault: false
     jsonData:
       path: /var/lib/grafana-sqlite/exported_jobs.db
-    secureJsonData:
-      pathOptions: "?mode=ro"
+      pathOptions: "mode=ro"
+      attachLimit: 0
     editable: false

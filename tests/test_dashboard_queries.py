@@ -3,6 +3,7 @@ import sqlite3
 import os
 import json
 import tempfile
+import yaml
 from datetime import datetime, timezone, timedelta
 
 def run_query(db_path, query):
@@ -17,7 +18,7 @@ class TestDashboardQueries(unittest.TestCase):
         self.db_path = os.path.join(self.test_dir, "exported_jobs.db")
 
         # Extract queries from JSON
-        json_path = os.path.join(os.path.dirname(__file__), '..', 'grafana', 'provisioning_jules', 'dashboards', 'jules_jobs.json')
+        json_path = os.path.join(os.path.dirname(__file__), '..', 'grafana', 'jules-dashboards', 'jules_jobs.json')
         with open(json_path, 'r') as f:
             dashboard = json.load(f)
             self.metadata_query = dashboard['panels'][0]['targets'][0]['rawQueryText']
@@ -101,6 +102,20 @@ class TestDashboardQueries(unittest.TestCase):
         # Verify ordering (latest created first)
         self.assertEqual(res[0][0], 'job2')
         self.assertEqual(res[0][2], 'Sin dato') # Coalesced NULL
+
+    def test_datasource_contract_matches_v4(self):
+        ds_path = os.path.join(os.path.dirname(__file__), '..', 'grafana', 'jules_sqlite.yaml')
+        with open(ds_path, 'r') as f:
+            ds_config = yaml.safe_load(f)
+
+        jules_ds = ds_config['datasources'][0]
+        self.assertEqual(jules_ds['uid'], 'SQLite_Jules')
+
+        # Verify frser-sqlite-datasource 4.0.6 compliant connection options
+        self.assertIn('jsonData', jules_ds)
+        self.assertEqual(jules_ds['jsonData']['pathOptions'], 'mode=ro')
+        self.assertEqual(jules_ds['jsonData']['attachLimit'], 0)
+        self.assertNotIn('secureJsonData', jules_ds) # ensure it wasn't accidentally left behind
 
 if __name__ == '__main__':
     unittest.main()

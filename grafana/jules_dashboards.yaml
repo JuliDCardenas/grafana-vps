@@ -9,5 +9,5 @@ providers:
     updateIntervalSeconds: 10
     allowUiUpdates: false
     options:
-      path: /etc/grafana/provisioning_jules/dashboards
+      path: /etc/grafana/jules-dashboards
       foldersFromFilesStructure: true
